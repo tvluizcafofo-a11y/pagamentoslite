@@ -1,0 +1,15 @@
+/
+├── index.html
+├── manifest.json
+├── sw.js
+├── offline.html
+├── browserconfig.xml
+├── robots.txt
+└── icons/
+    ├── icon.svg
+    ├── icon-192.png              ← gerar do SVG
+    ├── icon-512.png              ← gerar do SVG
+    ├── icon-maskable.svg
+    ├── icon-maskable-192.png     ← gerar do SVG maskable
+    ├── icon-maskable-512.png     ← gerar do SVG maskable
+    └── apple-touch-icon.png      ← 180×180 (gerar do SVG)
