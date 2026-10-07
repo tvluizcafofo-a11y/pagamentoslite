@@ -719,6 +719,18 @@
     border-color:#60a5fa;transform:translateY(-2px);}
   .nav-dia-btn:active{transform:scale(.95);}
 
+  .acoes-dia{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .acoes-dia .btn{
+    flex:1;
+    justify-content:center;
+    min-width:180px;
+  }
+
   @keyframes diaSlideInRight{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
   @keyframes diaSlideInLeft{from{opacity:0;transform:translateX(-40px)}to{opacity:1;transform:translateX(0)}}
   #listaDia.lista-dia-anim-next{animation:diaSlideInRight .25s ease-out;}
@@ -906,6 +918,9 @@
       <h2 class="titulo-tela" id="tituloDia"></h2>
       <button type="button" class="nav-dia-btn" id="diaProximo" title="Próximo dia" aria-label="Próximo dia">›</button>
     </div>
+    <div class="acoes-dia">
+      <button type="button" class="btn btn-primario" id="btnNovaDividaDia">➕ Nova dívida neste dia</button>
+    </div>
     <div id="listaDia"></div>
   </section>
 
@@ -922,9 +937,6 @@
           </label>
           <label class="campo">Descrição da dívida *
             <input type="text" id="campoDescricao" required placeholder="Empréstimo, IPTU 2025">
-          </label>
-          <label class="campo">Valor total (informativo)
-            <input type="number" id="campoValorTotal" step="0.01" min="0" placeholder="0,00">
           </label>
         </div>
       </div>
@@ -1059,7 +1071,7 @@
     <details class="ajuda-secao" id="ajuda-2">
       <summary><span class="emoji-secao">➕</span> 2. Cadastrar a primeira dívida</summary>
       <div class="ajuda-conteudo">
-        <p>Na tela inicial, toque em <b>➕ Nova dívida</b>. Preencha credor, descrição, valor total (opcional),
+        <p>Na tela inicial, toque em <b>➕ Nova dívida</b>. Preencha credor, descrição,
         valor da parcela, 1º vencimento, modo de cálculo (quantidade ou data da última) e periodicidade.
         A <b>prévia</b> mostra quantas parcelas serão geradas.</p>
         <div class="ajuda-dica">
@@ -1139,6 +1151,7 @@
           <li>Se houver edições não salvas, o app avisa antes de trocar.</li>
           <li>O mês do calendário acompanha o dia navegado.</li>
           <li>Gestos iniciados em campos de formulário são ignorados.</li>
+          <li>O botão <b>➕ Nova dívida neste dia</b> abre o formulário com o 1º vencimento já preenchido com a data selecionada.</li>
         </ul>
       </div>
     </details>
@@ -1223,7 +1236,7 @@
       <summary><span class="emoji-secao">🧰</span> 15. Editar em lote</summary>
       <div class="ajuda-conteudo">
         <p>Em <b>📋 Ver todas</b>, edite campos direto na tabela. No formulário de edição, altere credor,
-        descrição, valor total, novo valor e adicione parcelas.</p>
+        descrição, novo valor e adicione parcelas.</p>
       </div>
     </details>
 
@@ -1339,6 +1352,7 @@ let editandoId = null;
 const filtroResumo = { periodo:'tudo', dataInicio:'', dataFim:'' };
 let indicadorAtivo = null;
 let skipNextPop = false;
+let voltarParaDiaApos = null;
 
 const ROTULOS_STATUS = { em_aberto:'Em aberto', pago:'Pago', em_atraso:'Em atraso', outros:'Outros' };
 const ROTULOS_INDICADOR = {
@@ -1721,6 +1735,19 @@ function rolarParaElemento(el){
 
 function temRascunhosPendentes(){ return Object.keys(estado.rascunhos).length>0; }
 
+function confirmarDescarteRascunhos(){
+  if(!temRascunhosPendentes()) return true;
+  let tm=false;
+  for(const id in estado.rascunhos){ const dr=estado.rascunhos[id];
+    for(const d of dividas){ const p=d.parcelas.find(x=>x.id===id);
+      if(p&&rascunhoTemMudancas(d,p,dr)){ tm=true; break; } }
+    if(tm) break; }
+  if(!tm) return true;
+  if(!confirm('Você tem edições não salvas. Descartar?')) return false;
+  estado.rascunhos={};
+  return true;
+}
+
 function calcularPeriodoAtivo(){
   const hj=new Date(); const hjIso=hojeIso(); const p=filtroResumo.periodo;
   if(p==='tudo') return {inicio:null,fim:null,descricao:'📆 Todas as parcelas'};
@@ -1993,7 +2020,7 @@ function renderBusca(termo){
   const tn=normalizar(termo); const res=[];
   dividas.forEach(d=>{ d.parcelas.forEach(p=>{
     const cr=p.credorOverride||d.credor; const de=p.descricaoOverride||d.descricao;
-    const alvo=normalizar([cr,de,d.valorTotal?String(d.valorTotal):'',p.link,ROTULOS_STATUS[p.status],
+    const alvo=normalizar([cr,de,p.link,ROTULOS_STATUS[p.status],
       formatarMoeda(p.valor),p.vencimento,formatarDataBR(p.vencimento),`parcela ${p.numero}`,`${p.numero}/${d.parcelas.length}`].join(' '));
     if(alvo.includes(tn)) res.push({divida:d,parcela:p});
   }); });
@@ -2564,7 +2591,6 @@ document.getElementById('voltarCalendario').addEventListener('click',()=>{
 const formulario=document.getElementById('formularioDivida');
 const campoCredor=document.getElementById('campoCredor');
 const campoDescricao=document.getElementById('campoDescricao');
-const campoValorTotal=document.getElementById('campoValorTotal');
 const campoValorParcela=document.getElementById('campoValorParcela');
 const campoPrimeiro=document.getElementById('campoPrimeiroVencimento');
 const campoQtd=document.getElementById('campoQtd');
@@ -2632,14 +2658,19 @@ function limparFormulario(){ formulario.reset();
   campoPrimeiro.value=hojeIso(); campoNovoValor.value=''; campoAdicionar.value=0;
   campoPeriodicidade.value='mensal'; campoDiaMes.value=''; campoDiaSemana.value='';
   campoIndefinida.checked=false; atualizarBlocosPeriodicidade(); alternarContinua(); alternarModo(); }
-function abrirNovaDivida(){ editandoId=null; limparFormulario();
+function abrirNovaDivida(dataPreenchida){
+  editandoId=null; limparFormulario();
+  if(dataPreenchida) campoPrimeiro.value = dataPreenchida;
   tituloFormulario.innerHTML='➕ Nova dívida'; btnSalvarForm.innerHTML='💾 Salvar';
   btnExcluirEdicao.classList.add('escondido');
   fieldsetCriacao.classList.remove('escondido'); fieldsetEdicao.classList.add('escondido');
-  setCamposObrigatorios(true); mostrarTela('nova'); setTimeout(()=>campoCredor.focus(),200); }
-function abrirEdicaoDivida(id){ const d=dividas.find(x=>x.id===id); if(!d) return;
+  setCamposObrigatorios(true); mostrarTela('nova'); setTimeout(()=>campoCredor.focus(),200);
+}
+function abrirEdicaoDivida(id){
+  voltarParaDiaApos = null;
+  const d=dividas.find(x=>x.id===id); if(!d) return;
   editandoId=id; limparFormulario();
-  campoCredor.value=d.credor||''; campoDescricao.value=d.descricao||''; campoValorTotal.value=d.valorTotal||'';
+  campoCredor.value=d.credor||''; campoDescricao.value=d.descricao||'';
   const vb=d.valorParcela||(d.parcelas[0]&&d.parcelas[0].valor)||'';
   campoValorParcela.value=vb; campoPrimeiro.value=d.primeiroVencimento||hojeIso();
   campoQtd.value=d.qtdParcelas||d.parcelas.length||1; campoUltima.value=d.ultimoVencimento||'';
@@ -2652,12 +2683,33 @@ function abrirEdicaoDivida(id){ const d=dividas.find(x=>x.id===id); if(!d) retur
   tituloFormulario.innerHTML=d.continuada?'✏️ Editar contínua ♾️':'✏️ Editar dívida';
   btnSalvarForm.innerHTML='💾 Salvar alterações'; btnExcluirEdicao.classList.remove('escondido');
   fieldsetCriacao.classList.add('escondido'); fieldsetEdicao.classList.remove('escondido');
-  setCamposObrigatorios(false); mostrarTela('nova'); setTimeout(()=>campoCredor.focus(),200); }
+  setCamposObrigatorios(false); mostrarTela('nova'); setTimeout(()=>campoCredor.focus(),200);
+}
 function setCamposObrigatorios(on){ if(on){ campoValorParcela.setAttribute('required',''); campoPrimeiro.setAttribute('required',''); }
   else { campoValorParcela.removeAttribute('required'); campoPrimeiro.removeAttribute('required'); } }
-function voltarParaCalendario(){ editandoId=null; renderCalendario(); mostrarTela('calendario'); }
+function voltarParaCalendario(){
+  editandoId=null;
+  if(voltarParaDiaApos){
+    const dia = voltarParaDiaApos;
+    voltarParaDiaApos = null;
+    renderCalendario();
+    abrirDia(dia);
+    return;
+  }
+  renderCalendario();
+  mostrarTela('calendario');
+}
 
-document.getElementById('btnNovaDivida').addEventListener('click',abrirNovaDivida);
+document.getElementById('btnNovaDivida').addEventListener('click',()=>{
+  voltarParaDiaApos=null;
+  abrirNovaDivida();
+});
+document.getElementById('btnNovaDividaDia').addEventListener('click',()=>{
+  if(!confirmarDescarteRascunhos()) return;
+  const dia = estado.diaSelecionado || hojeIso();
+  voltarParaDiaApos = dia;
+  abrirNovaDivida(dia);
+});
 document.getElementById('cancelarNova').addEventListener('click',()=>{ if(confirm('Voltar?')) voltarParaCalendario(); });
 document.getElementById('btnDescartar').addEventListener('click',()=>{ if(confirm('Descartar?')) voltarParaCalendario(); });
 document.getElementById('btnExcluirEdicao').addEventListener('click',()=>{
@@ -2671,11 +2723,10 @@ document.getElementById('btnExcluirEdicao').addEventListener('click',()=>{
 formulario.addEventListener('submit',(e)=>{
   e.preventDefault();
   const cr=campoCredor.value.trim(); const de=campoDescricao.value.trim();
-  const vt=arredondar2(parseFloat(campoValorTotal.value)||0);
   if(!cr||!de){ alert('Preencha credor e descrição.'); return; }
   if(editandoId){
     const d=dividas.find(x=>x.id===editandoId); if(!d) return;
-    d.credor=cr; d.descricao=de; d.valorTotal=vt;
+    d.credor=cr; d.descricao=de;
     const nv=parseFloat(campoNovoValor.value);
     if(Number.isFinite(nv)&&nv>0){ d.parcelas.forEach(p=>{ if(p.status==='em_aberto'||p.status==='em_atraso') p.valor=arredondar2(nv); }); d.valorParcela=arredondar2(nv); }
     const ad=parseInt(campoAdicionar.value,10);
@@ -2696,12 +2747,18 @@ formulario.addEventListener('submit',(e)=>{
   const aj=ajustarBaseComDiaEspecifico(pr,p,de2); const bf=aj.data;
   const ps=[];
   for(let i=0;i<n;i++){ ps.push({ id:gerarId(), numero:i+1, valor:vp, vencimento:calcularVencimentoPorIndice(bf,i,p), link:'', status:'em_aberto', comprovante:null }); }
-  const nova={ id:gerarId(), credor:cr, descricao:de, valorTotal:vt, valorParcela:vp,
+  const nova={ id:gerarId(), credor:cr, descricao:de, valorParcela:vp,
     modo:cont?'continua':modoAtual(), periodicidade:p, diaEspecifico:de2, continuada:cont, ancora:bf,
     qtdParcelas:n, primeiroVencimento:bf, ultimoVencimento:ps[ps.length-1].vencimento,
     criadoEm:new Date().toISOString(), aberto:false, parcelas:ps };
   dividas.push(nova); salvar(); atualizarListaCredores();
   const d1=isoParaData(bf); estado.mesRef=new Date(d1.getFullYear(),d1.getMonth(),1);
+  if(voltarParaDiaApos){
+    voltarParaDiaApos = null;
+    renderCalendario();
+    abrirDia(bf);
+    return;
+  }
   renderCalendario(); mostrarTela('calendario');
 });
 
